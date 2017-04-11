@@ -1,0 +1,120 @@
+Parallel cURL execution in PHP
+
+ August 4, 2010  sameer  libraries, php
+cURL is a Swiss army knife of web content processing. Programmers use it for a number of things everyday. One interesting feature the cURL library offers that many programmers are unaware of is the parallel execution of requests.
+curl has two major modes of request execution: ‘easy’ mode and the ‘multi’ mode. Most people use the ‘easy’ mode – in this mode when we issue multiple requests, the second request will not start until the first one is complete. This is known as synchronous execution, and this is the one we normally use. This means that if we have 100 requests to process, each will be processed in a linear manner, which could take a lot of time. This is where ‘multi’ mode comes to the rescue. In this mode all requests can be handled in parallel or asynchronously. And it can be quite handy and time saving on many occasions. The ‘multi’ or parallel mode is handled by the following curl functions:
+
+curl_multi_init();
+curl_multi_add_handle();
+curl_multi_select();
+curl_multi_exec();
+curl_multi_getcontent();
+curl_multi_info_read();
+curl_multi_remove_handle();
+
+Using parallel curl libraries
+
+But there is one caveat when using the multi mode; it can be a little confusing. And as always, working with asynchronous code is not always easy, so I prefer to use classes developed by other people. Between the various libraries I’ve found on the net, pete wardens is the one I like. Below is a rough outline of how it works. You first initialize the class and specify the number of requests it should handle in parallel (10 here) along with some curl options.
+
+$parallel_curl = new ParallelCurl(10, $curl_options);
+Next we call the startRequestmethod, specifying the url to request and a callback function, which will be run when the request is processed. We can also pass a optional third parameter which will be handed over to the callback function. If there are any post fields, you can pass them as the fourth parameter in the startRequestmethod.
+
+$parallel_curl->startRequest($search_url, 'on_request_done', $search);
+Thats it, this is all that is required to execute parallel curl requests. Below is a broad overview of how to use the class.
+
+<?php
+ 
+require_once('parallelcurl.php');
+ 
+$url1 = 'http://www.example.com/');
+$url2 = 'http://www.example.com/');
+$url3 = 'http://www.example.com/');
+ 
+// This function gets called back for each request that completes
+function on_request_done($content, $url, $ch, $search) {
+...
+}
+ 
+$max_requests = 10;
+ 
+$curl_options = array(
+    CURLOPT_SSL_VERIFYPEER => FALSE,
+    CURLOPT_SSL_VERIFYHOST => FALSE
+);
+ 
+$parallel_curl = new ParallelCurl($max_requests, $curl_options);
+ 
+// Start 3 parallel requests. All three will be started simultaneously.
+$parallel_curl->startRequest($url1, 'on_request_done');
+$parallel_curl->startRequest($url2, 'on_request_done');
+$parallel_curl->startRequest($url3, 'on_request_done');
+ 
+$parallel_curl->finishAllRequests();
+ 
+?>
+The complete test script using the class to run Google search queries in parallel is shown below.
+
+ 
+require_once('parallelcurl.php');
+ 
+define ('SEARCH_URL_PREFIX', 'http://ajax.googleapis.com/ajax/services/\
+                            search/web?v=1.0&rsz=large&filter=0');
+ 
+// This function gets called back for each request that completes
+function on_request_done($content, $url, $ch, $search) {
+    $httpcode = curl_getinfo($ch, CURLINFO_HTTP_CODE);    
+    if ($httpcode !== 200) {
+        print "Fetch error $httpcode for '$url'\n";
+        return;
+    }
+ 
+    $responseobject = json_decode($content, true);
+    if (empty($responseobject['responseData']['results'])) {
+        print "No results found for '$search'\n";
+        return;
+    }
+ 
+    print "********\n";
+    print "$search:\n";
+    print "********\n";
+ 
+    $allresponseresults = $responseobject['responseData']['results'];
+    foreach ($allresponseresults as $responseresult) {
+        $title = $responseresult['title'];
+        print "$title\n";
+    }
+}
+ 
+// The terms to search for on Google
+$terms_list = array(
+    "Paul", "Lena",
+    "Lee", "Marie",
+    "Tom", "Ada",
+    "Herman", "Josephine",
+);
+ 
+if (isset($argv[1])) {
+    $max_requests = $argv[1];
+} else {
+    $max_requests = 10;
+}
+ 
+$curl_options = array(
+    CURLOPT_SSL_VERIFYPEER => FALSE,
+    CURLOPT_SSL_VERIFYHOST => FALSE,
+    CURLOPT_USERAGENT, 'Parallel Curl test script',
+);
+ 
+$parallel_curl = new ParallelCurl($max_requests, $curl_options);
+ 
+foreach ($terms_list as $terms) {
+    $search = '"'.$terms.' is a"';
+    $search_url = SEARCH_URL_PREFIX.'&q='.urlencode($terms);
+    $parallel_curl->startRequest($search_url,'on_request_done',$search);
+}
+ 
+$parallel_curl->finishAllRequests();
+ 
+?>
+Note: I have found the php curl multi mode execution to be inconsistent on Windows. But it works great on Linux (I’m using Ubuntu).
+You can download the parallelCurl class from gitHub.
